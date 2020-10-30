@@ -22,4 +22,5 @@
 
 Provide useful tool packages. All [PRs](https://github.com/go-dawn/pkg/pulls) are welcome!
 
-## 🔧 Available Packages
+## 📦 Available Packages
+- [deck](https://github.com/go-dawn/pkg/blob/master/deck/README.md): Make testing easier and under control when using `os.Exit`, `exec.Command`, `exec.LookPath`, `os.Stdout`, `os.Stderr`, `os.Environment`, `cobra.Command`
