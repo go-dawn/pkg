@@ -182,7 +182,7 @@ func TestSomeFunction(t *testing.T) {
 
 	at.Nil(os.Setenv(key1, oldValue))
 
-	deck.SetupEnvs(Envs{key1: newValue, key2: newValue})
+	deck.SetupEnvs(deck.Envs{key1: newValue, key2: newValue})
 
 	v1, v2 := SomeFunction(key1, key2)
 
