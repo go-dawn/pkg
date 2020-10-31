@@ -38,20 +38,32 @@ func TestExecCommand(t *testing.T) {
 	})
 
 	t.Run("error", func(t *testing.T) {
-		SetupCmd(NeedErr)
+		SetupCmdError()
 		defer TeardownCmd()
 
 		cmd := ExecCommand("test", "error")
 
 		b, err := cmd.CombinedOutput()
 		at.NotNil(err)
-		at.Equal("[test error]", string(b))
+		at.Equal("", string(b))
+		at.Contains(err.Error(), errorCommand)
+	})
+
+	t.Run("stderr", func(t *testing.T) {
+		SetupCmdStderr()
+		defer TeardownCmd()
+
+		cmd := ExecCommand("test", "stderr")
+
+		b, err := cmd.CombinedOutput()
+		at.NotNil(err)
+		at.Equal("[test stderr]", string(b))
 	})
 }
 
 func TestHelperCommand(t *testing.T) {
-	HandleCommand(func(args []string, needErr bool) {
-		if needErr {
+	HandleCommand(func(args []string, expectStderr bool) {
+		if expectStderr {
 			_, _ = fmt.Fprintf(os.Stderr, "%v", args)
 			os.Exit(1)
 		}
@@ -70,23 +82,35 @@ func TestHandleCommand(t *testing.T) {
 
 	os.Args = append(os.Args, "--", "test")
 
-	HandleCommand(func(args []string, needErr bool) {
+	HandleCommand(func(args []string, expectStderr bool) {
 		at.Equal(1, len(args))
 		at.Equal("test", args[0])
-		at.False(needErr)
+		at.False(expectStderr)
 	})
 }
 
 func TestExecLookPath(t *testing.T) {
 	at := assert.New(t)
 
-	SetupExecLookPath(NeedErr)
-	defer TeardownExecLookPath()
+	t.Run("success", func(t *testing.T) {
+		SetupExecLookPath()
+		defer TeardownExecLookPath()
 
-	bin, err := ExecLookPath("test")
+		bin, err := ExecLookPath("test")
 
-	at.Equal(ErrLookPath, err)
-	at.Equal("test", bin)
+		at.Nil(err)
+		at.Equal("test", bin)
+	})
+
+	t.Run("error", func(t *testing.T) {
+		SetupExecLookPathError()
+		defer TeardownExecLookPath()
+
+		bin, err := ExecLookPath("test")
+
+		at.Equal(ErrLookPath, err)
+		at.Equal("", bin)
+	})
 }
 
 func TestStdout(t *testing.T) {

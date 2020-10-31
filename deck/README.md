@@ -31,7 +31,7 @@ func SomeFunction() {
 ```
 
 ### exec.Command
-Use `var execCommand = deck.ExecCommand` to replace `exec.Command`. And the `TestHelperCommand` test function must be added in one of the test file in the package. You can do some assertion logic in `deck.HandleCommand` function and determine the output and exit code of the executed command.
+Use `var execCommand = deck.ExecCommand` to replace `exec.Command`. And the `TestHelperCommand` test function must be added in one of the test file in the package. You must use `deck.HandleCommand` function and determine the output of the executed command.
 
 ```go
 import (
@@ -54,7 +54,16 @@ func TestSomeFunction(t *testing.T) {
 	})
 
 	t.Run("error", func(t *testing.T) {
-		deck.SetupCmd(deck.NeedErr)
+		deck.SetupCmdError()
+		defer deck.TeardownCmd()
+
+		b, err := SomeFunction()
+		at.NotNil(err)
+		at.Equal("", string(b))
+	})
+
+	t.Run("stderr", func(t *testing.T) {
+		deck.SetupCmdStderr()
 		defer deck.TeardownCmd()
 
 		b, err := SomeFunction()
@@ -64,8 +73,8 @@ func TestSomeFunction(t *testing.T) {
 }
 
 func TestHelperCommand(t *testing.T) {
-	deck.HandleCommand(func(args []string, needErr bool) {
-		if needErr {
+	deck.HandleCommand(func(args []string, expectStderr bool) {
+		if expectStderr {
 			_, _ = fmt.Fprintf(os.Stderr, "%v", args)
 			os.Exit(1)
 		}
@@ -93,13 +102,25 @@ var execLookPath = deck.ExecLookPath
 func TestSomeFunction(t *testing.T) {
 	at := assert.New(t)
 
-	deck.SetupExecLookPath(deck.NeedErr)
-	defer deck.TeardownExecLookPath()
+	t.Run("success", func(t *testing.T) {
+		SetupExecLookPath()
+		defer TeardownExecLookPath()
 
-	bin, err := SomeFunction()
+		bin, err := SomeFunction()
 
-	at.Equal(deck.ErrLookPath, err)
-	at.Equal("test", bin)
+		at.Nil(err)
+		at.Equal("test", bin)
+	})
+
+	t.Run("error", func(t *testing.T) {
+		SetupExecLookPathError()
+		defer TeardownExecLookPath()
+
+		bin, err := SomeFunction()
+
+		at.Equal(ErrLookPath, err)
+		at.Equal("", bin)
+	})
 }
 
 func SomeFunction() (string, error) {

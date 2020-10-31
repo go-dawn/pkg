@@ -11,58 +11,83 @@ import (
 )
 
 // OsExit is a wrapper for os.Exit.
-var OsExit = os.Exit
+var OsExit = func(code int) { mockOsExit(code) }
+var mockOsExit = os.Exit
 
 // ExecCommand is a wrapper for exec.Command.
-var ExecCommand = exec.Command
+var ExecCommand = func(name string, arg ...string) *exec.Cmd { return mockExecCommand(name, arg...) }
+var mockExecCommand = exec.Command
+var expectExecCommandError bool
+var expectExecCommandStderr bool
 
 // ExecLookPath is a wrapper for exec.LookPath.
-var ExecLookPath = exec.LookPath
+var ExecLookPath = func(file string) (string, error) { return mockExecLookPath(file) }
+var mockExecLookPath = exec.LookPath
 
 // ErrLookPath means that error occurs when calling
 // ExecLookPath.
 var ErrLookPath = errors.New("deck: look path error")
 
-// NeedErr determines whether command or function returns error
-var NeedErr = struct{}{}
-
 // Stdout is a wrapper for os.Stdout.
 var Stdout = os.Stdout
+var stdoutForward *os.File
 
 // Stderr is a wrapper for os.Stderr.
 var Stderr = os.Stderr
+var stderrForward *os.File
 
-var needError bool
-
-// SetupCmd mocks ExecCommand. Should create one test function
+// SetupCmd mocks ExecCommand. Must create one test function
 // named TestHelperCommand in a package and use HandleCommand
-// in it. See it for more detail.
-func SetupCmd(flag ...struct{}) {
-	ExecCommand = fakeExecCommand
-	if len(flag) > 0 {
-		needError = true
-	}
+// in it.
+func SetupCmd() {
+	mockExecCommand = fakeExecCommand
+}
+
+// SetupErrorCmd mocks ExecCommand and when running the returned
+// command, always get an error. Must create one test function
+// named TestHelperCommand in a package and use HandleCommand
+// in it.
+func SetupCmdError() {
+	mockExecCommand = fakeExecCommand
+	expectExecCommandError = true
+}
+
+// SetupStderrCmd mocks ExecCommand. Must create one test function
+// named TestHelperCommand in a package and use HandleCommand
+// in it. Besides, the second parameter of the handler function in
+// HandleCommand will be true.
+func SetupCmdStderr() {
+	mockExecCommand = fakeExecCommand
+	expectExecCommandStderr = true
 }
 
 // TeardownCmd restores ExecCommand to the original one.
 func TeardownCmd() {
-	ExecCommand = exec.Command
-	needError = false
+	mockExecCommand = exec.Command
+	expectExecCommandError = false
+	expectExecCommandStderr = false
 }
 
-func fakeExecCommand(command string, args ...string) *exec.Cmd {
-	cs := []string{"-test.run=TestHelperCommand", "--", command}
-	cs = append(cs, args...)
-	cmd := exec.Command(os.Args[0], cs...)
-	cmd.Env = []string{"GO_WANT_HELPER_COMMAND=1"}
-	if needError {
-		cmd.Env = append(cmd.Env, "GO_WANT_HELPER_NEED_ERR=1")
+const errorCommand = "deck_exec_command_need_error"
+
+func fakeExecCommand(command string, args ...string) (cmd *exec.Cmd) {
+	if expectExecCommandError {
+		return exec.Command(errorCommand)
 	}
+
+	args = append([]string{"-test.run=TestHelperCommand", "--", command}, args...)
+	cmd = exec.Command(os.Args[0], args...)
+	cmd.Env = []string{"GO_WANT_HELPER_COMMAND=1"}
+
+	if expectExecCommandStderr {
+		cmd.Env = append(cmd.Env, "GO_WANT_HELPER_EXPECT_STDERR=1")
+	}
+
 	return cmd
 }
 
-// HandleCommand handles every command
-func HandleCommand(handler func(args []string, needErr bool)) {
+// HandleCommand handles every command wanted help
+func HandleCommand(handler func(args []string, expectStderr bool)) {
 	if os.Getenv("GO_WANT_HELPER_COMMAND") != "1" {
 		return
 	}
@@ -75,45 +100,45 @@ func HandleCommand(handler func(args []string, needErr bool)) {
 		args = args[1:]
 	}
 
-	handler(args, os.Getenv("GO_WANT_HELPER_NEED_ERR") == "1")
+	handler(args, os.Getenv("GO_WANT_HELPER_EXPECT_STDERR") == "1")
 
 	OsExit(0)
 }
 
-// SetupExecLookPath mocks ExecLookPath. Pass NeedErr if you want an error.
-func SetupExecLookPath(flag ...struct{}) {
-	ExecLookPath = func(file string) (s string, err error) {
-		s = file
+// SetupExecLookPath mocks ExecLookPath.
+func SetupExecLookPath() {
+	mockExecLookPath = func(file string) (string, error) {
+		return file, nil
+	}
+}
 
-		if len(flag) > 0 {
-			err = ErrLookPath
-		}
-		return
+// SetupExecLookPathError mocks ExecLookPath and always return an error.
+func SetupExecLookPathError() {
+	mockExecLookPath = func(_ string) (string, error) {
+		return "", ErrLookPath
 	}
 }
 
 // TeardownExecLookPath restores ExecLookPath to the original one.
 func TeardownExecLookPath() {
-	ExecLookPath = exec.LookPath
+	mockExecLookPath = exec.LookPath
 }
 
 // SetupOsExit mocks OsExit.
-func SetupOsExit(fn ...func(code int)) {
-	f := func(code int) {}
+func SetupOsExit(override ...func(code int)) {
+	fn := func(code int) {}
 
-	if len(fn) > 0 {
-		f = fn[0]
+	if len(override) > 0 {
+		fn = override[0]
 	}
 
-	OsExit = f
+	mockOsExit = fn
 }
 
 // TeardownOsExit restores OsExit to the original one.
 func TeardownOsExit() {
-	OsExit = os.Exit
+	mockOsExit = os.Exit
 }
-
-var stdoutForward *os.File
 
 // RedirectStdout mocks Stdout.
 func RedirectStdout() {
@@ -130,8 +155,6 @@ func DumpStdout() string {
 
 	return string(b)
 }
-
-var stderrForward *os.File
 
 // RedirectStderr mocks Stderr.
 func RedirectStderr() {
