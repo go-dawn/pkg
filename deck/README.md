@@ -246,3 +246,54 @@ func TestRunCobraCmd(t *testing.T) {
 	at.Equal("[cobra]", out)
 }
 ```
+
+### httptest
+Use `SetupServer` to get `*fiber.App` instance as `app` and `*httptest.Expect` instance as `e`. And then register routes by `app`. Next make request by `e` and finally do assertion with several helper functions. 
+
+```go
+import (
+	"testing"
+
+	"github.com/gavv/httpexpect/v2"
+	"github.com/go-dawn/dawn/fiberx"
+	"github.com/go-dawn/pkg/deck"
+	"github.com/gofiber/fiber/v2"
+)
+
+func Test_Fiber_Routes(t *testing.T) {
+	app, e := deck.SetupServer(t)
+
+	app.Get("/", func(c *fiber.Ctx) error {
+		return fiberx.Message(c, "test")
+	})
+
+	resp := e.GET("/").Expect()
+
+	deck.AssertRespStatus(resp, fiber.StatusOK)
+	deck.AssertRespCode(resp, 200)
+	deck.AssertRespMsg(resp, "test")
+	deck.AssertRespMsgContains(resp, "es")
+
+	data := deck.Expected{
+		Status:  500,
+		Code:    500,
+		Msg:     "error",
+		Contain: false,
+	}
+
+	app.Get("/data", func(c *fiber.Ctx) error {
+		return fiberx.Data(c, data)
+	})
+
+	resp2 := e.GET("/data").Expect()
+
+	deck.AssertRespData(resp2, data)
+	deck.AssertRespDataCheck(resp2, func(v *httpexpect.Value) {
+		obj := v.Object()
+		obj.ValueEqual("Status", 500)
+		obj.ValueEqual("Code", 500)
+		obj.ValueEqual("Msg", "error")
+		obj.ValueEqual("Contain", false)
+	})
+}
+```
