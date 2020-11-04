@@ -248,7 +248,7 @@ func TestRunCobraCmd(t *testing.T) {
 ```
 
 ### httptest
-Use `SetupServer` to get `*fiber.App` instance as `app` and `*httptest.Expect` instance as `e`. And then register routes by `app`. Next make request by `e` and finally do assertion with several helper functions. 
+Use `SetupServer` to get a `*fiber.App` instance as `app` and an `*httptest.Expect` instance as `e`. And then register routes by `app`. Next make request by `e` and finally do assertion with several helper functions. 
 
 ```go
 import (
@@ -295,5 +295,51 @@ func Test_Fiber_Routes(t *testing.T) {
 		obj.ValueEqual("Msg", "error")
 		obj.ValueEqual("Contain", false)
 	})
+}
+```
+
+### gorm
+Use `SetupGormDB` to get a `*gorm.DB` instance as `gdb` and passed in models will be auto migrated. `gdb` is driven by an in-memory `sqlite` db.
+
+```go
+import (
+	"testing"
+
+	"github.com/go-dawn/pkg/deck"
+    "github.com/stretchr/testify/assert"
+    "gorm.io/gorm"
+)
+
+type Fake struct {
+	gorm.Model
+	F string
+}
+
+func Test_DryRunSession(t *testing.T) {
+	s := deck.DryRunSession(t)
+
+	stat := s.Find(&Fake{}).Statement
+
+	assert.Equal(t, "SELECT * FROM `fakes` WHERE `fakes`.`deleted_at` IS NULL", stat.SQL.String())
+}
+
+func Test_AssertDBCount(t *testing.T) {
+	gdb := deck.SetupGormDB(t, &Fake{})
+
+	deck.AssertDBCount(t, gdb.Model(&Fake{}), int64(0))
+}
+
+func Test_AssertDBHas(t *testing.T) {
+	gdb := deck.SetupGormDB(t, &Fake{})
+
+	assert.Nil(t, gdb.Create(&Fake{F: "f"}).Error)
+
+	deck.AssertDBHas(t, gdb.Model(&Fake{}), Columns{"F": "f"})
+}
+
+func Test_AssertDBMissing(t *testing.T) {
+	gdb := deck.SetupGormDB(t, &Fake{})
+
+	deck.AssertDBMissing(t, gdb.Model(&Fake{}), Columns{"F": "f"})
 }
 ```
