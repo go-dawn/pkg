@@ -97,3 +97,17 @@ func randString(b *testing.B, i int) {
 		}
 	})
 }
+
+func Test_Rand_NumString(t *testing.T) {
+	assert.Equal(t, 6, len(NumString(6)))
+}
+
+func Benchmark_Rand_NumString(b *testing.B) {
+	b.RunParallel(func(pb *testing.PB) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for pb.Next() {
+			NumString(6)
+		}
+	})
+}
