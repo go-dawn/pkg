@@ -37,3 +37,6 @@ Provide useful tool packages. All [PRs](https://github.com/go-dawn/pkg/pulls) ar
     - `int`
     - `float64`
     - `string`
+- [debug](https://github.com/go-dawn/pkg/blob/master/debug/README.md): Handy functions for debug
+    - `DP` dumps variables in prettier format
+    - `DD` dumps variables in prettier format and exit
