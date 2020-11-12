@@ -1,6 +1,15 @@
 package debug
 
-//func Test_Debug_Dump(t *testing.T) {
-//	var i int64 = 98
-//	defaultDebugger.DP(&i, []byte{'2', '3'}, make(chan struct{}), map[string]string{"key": "val"})
-//}
+import (
+	"testing"
+)
+
+type x struct {
+	a  int
+	ch chan<- struct{}
+}
+
+func Test_Debug_Dump(t *testing.T) {
+	s := [][]chan struct{}{{nil, make(chan struct{}), nil}, {make(chan struct{})}}
+	dbg.DP([2]int{1, 1}, s)
+}

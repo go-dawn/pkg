@@ -1,49 +1,53 @@
 package debug
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"reflect"
+	"strconv"
+	"strings"
 
 	"github.com/go-dawn/pkg/deck"
+	"github.com/valyala/bytebufferpool"
 )
 
 var osExit = deck.OsExit
 
-var defaultDebugger = &debugger{
-	out: os.Stdout,
+// dbg default debugger
+var dbg = &debugger{
+	out:    os.Stdout,
+	indent: "..",
 }
 
 // DP dumps variables in prettier format
 func DP(vars ...interface{}) {
-	defaultDebugger.DP(vars...)
+	dbg.DP(vars...)
 }
 
 // DD dumps variables in prettier format and exit
 func DD(vars ...interface{}) {
-	defaultDebugger.DD(vars...)
+	dbg.DD(vars...)
 }
 
 type debugger struct {
-	buf bytes.Buffer
-
-	out io.Writer
+	indent string
+	out    io.Writer
 }
 
 // DP dumps variables in prettier format
 func (d *debugger) DP(vars ...interface{}) {
+	bb := bytebufferpool.Get()
+	defer bytebufferpool.Put(bb)
+
 	for i, v := range vars {
 		// write index
-		d.writeIndex(i + 1)
+		d.writeIndex(bb, i+1)
 
-		d.dump(v)
-
-		d.buf.WriteString("\n")
+		d.dump(bb, v, 1)
 	}
 
-	if _, err := d.buf.WriteTo(d.out); err != nil {
+	if _, err := bb.WriteTo(d.out); err != nil {
 		panic(err)
 	}
 }
@@ -54,27 +58,182 @@ func (d *debugger) DD(vars ...interface{}) {
 	osExit(0)
 }
 
-func (d *debugger) dump(v interface{}) {
-	val := reflect.ValueOf(v)
-	typ := reflect.TypeOf(v)
+func (d *debugger) dump(bb *bytebufferpool.ByteBuffer, v interface{}, lvl int) {
+	if v == nil {
+		_, _ = bb.WriteString("<nil>\n")
+		return
+	}
 
-	d.buf.WriteString(fmt.Sprintf("%s: %v\n", typ.String(), val.Interface()))
+	val := reflect.ValueOf(v)
+	typ := val.Type()
+
+	_, _ = bb.WriteString(typ.String())
+
+	for typ.Kind() == reflect.Ptr {
+		val = val.Elem()
+		typ = typ.Elem()
+	}
+
+	kind := typ.Kind()
+
+	indent := strings.Repeat(d.indent, lvl)
+
+	if kind != reflect.Slice && kind != reflect.Map {
+		_ = bb.WriteByte('\n')
+		_, _ = bb.WriteString(indent)
+	}
+
+	switch kind {
+	case reflect.Bool:
+		bb.B = strconv.AppendBool(bb.B, val.Bool())
+		_ = bb.WriteByte(',')
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		bb.B = strconv.AppendInt(bb.B, val.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		bb.B = strconv.AppendUint(bb.B, val.Uint(), 10)
+	case reflect.String:
+		_ = bb.WriteByte('"')
+		_, _ = bb.WriteString(val.String())
+		_ = bb.WriteByte('"')
+	case reflect.Chan:
+		if val.IsNil() {
+			_, _ = bb.WriteString("<nil>\n")
+			return
+		}
+		_, _ = bb.WriteString("len=")
+		bb.B = strconv.AppendInt(bb.B, int64(val.Len()), 10)
+		_, _ = bb.WriteString(", cap=")
+		bb.B = strconv.AppendInt(bb.B, int64(val.Cap()), 10)
+	case reflect.Func:
+		if val.IsNil() {
+			_, _ = bb.WriteString("<nil>\n")
+			return
+		}
+		_, _ = bb.WriteString(fmt.Sprintf("%v", val.Interface()))
+	case reflect.Array:
+		d.dumpArrayOrSlice(bb, val, lvl)
+	case reflect.Slice:
+		if val.IsNil() {
+			_ = bb.WriteByte('\n')
+			_, _ = bb.WriteString(indent)
+			_, _ = bb.WriteString("<nil>\n")
+			return
+		}
+		_, _ = bb.WriteString(" (len=")
+		bb.B = strconv.AppendInt(bb.B, int64(val.Len()), 10)
+		_, _ = bb.WriteString(", cap=")
+		bb.B = strconv.AppendInt(bb.B, int64(val.Cap()), 10)
+		_, _ = bb.WriteString(")\n")
+		_, _ = bb.WriteString(indent)
+
+		d.dumpArrayOrSlice(bb, val, lvl)
+	case reflect.Map, reflect.Struct:
+		_, _ = bb.WriteString(fmt.Sprintf("%#v", v))
+	default:
+		_, _ = bb.WriteString(fmt.Sprintf("%v", val.Interface()))
+	}
+
+	_ = bb.WriteByte('\n')
 }
 
-func (d *debugger) writeIndex(n int) {
-	var b [4]byte
-	bb := b[:]
-	i := len(bb)
-	var q int
-	for n >= 10 {
-		i--
-		q = n / 10
-		bb[i] = '0' + byte(n-q*10)
-		n = q
-	}
-	i--
-	bb[i] = '0' + byte(n)
+func (d *debugger) writeIndex(bb *bytebufferpool.ByteBuffer, n int) {
+	bb.B = strconv.AppendInt(bb.B, int64(n), 10)
+	_ = bb.WriteByte(' ')
+}
 
-	d.buf.Write(bb[i:])
-	d.buf.WriteByte(' ')
+func (d *debugger) dumpArrayOrSlice(bb *bytebufferpool.ByteBuffer, val reflect.Value, lvl int) {
+	_, _ = bb.WriteString("[")
+
+	for i := 0; i < val.Len(); i++ {
+		d.dumpElement(bb, val.Index(i).Interface(), lvl+1, i == val.Len()-1)
+	}
+
+	_ = bb.WriteByte(']')
+}
+
+func (d *debugger) dumpElement(bb *bytebufferpool.ByteBuffer, v interface{}, lvl int, last bool) {
+	if v == nil {
+		_, _ = bb.WriteString("<nil>")
+		if !last {
+			_, _ = bb.WriteString(", ")
+		}
+		return
+	}
+
+	val := reflect.ValueOf(v)
+	typ := val.Type()
+
+	for typ.Kind() == reflect.Ptr {
+		val = val.Elem()
+		typ = typ.Elem()
+	}
+
+	kind := typ.Kind()
+
+	indent := strings.Repeat(d.indent, lvl)
+
+	switch kind {
+	case reflect.Bool:
+		bb.B = strconv.AppendBool(bb.B, val.Bool())
+		//_, _ = bb.WriteString(", ")
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		bb.B = strconv.AppendInt(bb.B, val.Int(), 10)
+		//_, _ = bb.WriteString(", ")
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		bb.B = strconv.AppendUint(bb.B, val.Uint(), 10)
+		//_, _ = bb.WriteString(", ")
+	case reflect.String:
+		_ = bb.WriteByte('"')
+		_, _ = bb.WriteString(val.String())
+		_ = bb.WriteByte('"')
+		//_ = bb.WriteByte(',')
+	case reflect.Chan:
+		if val.IsNil() {
+			_, _ = bb.WriteString("<nil>")
+			if !last {
+				_, _ = bb.WriteString(", ")
+			}
+			return
+		}
+		_, _ = bb.WriteString(fmt.Sprintf("%v", val.Interface()))
+
+		_, _ = bb.WriteString("(len=")
+		bb.B = strconv.AppendInt(bb.B, int64(val.Len()), 10)
+		_, _ = bb.WriteString(", cap=")
+		bb.B = strconv.AppendInt(bb.B, int64(val.Cap()), 10)
+		_, _ = bb.WriteString(")")
+
+		//_, _ = bb.WriteString(", ")
+	case reflect.Func:
+		if val.IsNil() {
+			_, _ = bb.WriteString("<nil>")
+			return
+		}
+		_, _ = bb.WriteString(fmt.Sprintf("%v", val.Interface()))
+	case reflect.Array:
+		d.dumpArrayOrSlice(bb, val, lvl)
+	case reflect.Slice:
+		if val.IsNil() {
+			_, _ = bb.WriteString("<nil>")
+			return
+		}
+		_, _ = bb.WriteString("\n")
+		_, _ = bb.WriteString(indent)
+
+		d.dumpArrayOrSlice(bb, val, lvl)
+
+		if last {
+			_, _ = bb.WriteString(",\n")
+			_, _ = bb.WriteString(strings.Repeat(d.indent, lvl-1))
+			return
+		}
+	case reflect.Map, reflect.Struct:
+		_, _ = bb.WriteString(fmt.Sprintf("%#v", v))
+	default:
+		_, _ = bb.WriteString(fmt.Sprintf("%v", val.Interface()))
+	}
+
+	if !last {
+		_, _ = bb.WriteString(", ")
+	}
 }
