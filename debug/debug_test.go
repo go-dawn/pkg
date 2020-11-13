@@ -1,18 +1,20 @@
 package debug
 
 import (
-	"io"
-	"os"
 	"testing"
 )
 
 type x struct {
-	a  int
-	ch chan<- struct{}
+	A int
+	b float64
+	C chan<- struct{}
+	D interface{}
+	E complex64
+	f []byte
+	G map[interface{}]interface{}
 }
 
 func Test_Debug_Dump(t *testing.T) {
-	m := map[interface{}]interface{}{1.1: 2.2, true: true, false: 23, 1: 1, "2": 1.23, io.Writer(os.Stdout): nil, "xx": x{}}
-	var a *int
-	dbg.DP(m, []interface{}{a, a, a})
+	a := &x{A: 12, b: 12.4, C: make(chan struct{}), D: x{}, f: []byte("F"), G: map[interface{}]interface{}{"hello": "world"}}
+	dbg.DP(&a)
 }
