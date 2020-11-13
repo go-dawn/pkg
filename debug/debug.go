@@ -203,6 +203,7 @@ func (d *debugger) dumpStruct(bb *bytebufferpool.ByteBuffer, val reflect.Value, 
 		isInterface := strings.Contains(typStr, "interface {}")
 
 		f := clone.Field(i)
+		/* #nosec G103 */
 		f = reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem()
 
 		last := i == l-1
