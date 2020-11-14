@@ -32,24 +32,23 @@ type fake struct {
 }
 
 func Test_Debug_Dump(t *testing.T) {
-	//dbg.DP(make(chan *fake, 2), fake{
-	//	b: []byte("bbb"),
-	//	B: []interface{}{
-	//		[]byte("ccc"),
-	//		struct {
-	//			ss string
-	//			vv **string
-	//		}{ss: "sss"},
-	//		map[uint8]int8{1: 2, 2: 9}},
-	//	C: make(chan struct{}, 16),
-	//	M: map[interface{}]interface{}{
-	//		make(chan *fake, 2): make(chan *fake, 2),
-	//		make(chan *fake, 2): 23,
-	//	},
-	//	p: unsafe.Pointer(&fake{}),
-	//	Y: []*fake{{}, {}},
-	//	Z: []map[int]int{{1: 1}, {2: 2, 3: 3}},
-	//},
-	//)
-	dbg.DP(fake{})
+	dbg.DP(make(chan *fake, 2), fake{
+		b: []byte("bbb"),
+		B: []interface{}{
+			[]byte("ccc"),
+			struct {
+				ss string
+				vv **string
+			}{ss: "sss"},
+			map[uint8]int8{1: 2, 2: 9}},
+		C: make(chan struct{}, 16),
+		M: map[interface{}]interface{}{
+			make(chan *fake, 2): make(chan *fake, 2),
+			make(chan *fake, 2): 23,
+		},
+		p: unsafe.Pointer(&fake{}),
+		Y: []*fake{{}, {}},
+		Z: []map[int]int{{1: 1}, {2: 2, 3: 3}},
+	},
+	)
 }

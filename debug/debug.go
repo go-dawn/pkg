@@ -17,8 +17,9 @@ var osExit = deck.OsExit
 
 // dbg default debugger
 var dbg = &debugger{
-	out:    os.Stdout,
-	indent: "..",
+	out:      os.Stdout,
+	indent:   "..",
+	maxDepth: 5,
 }
 
 // DP dumps variables in prettier format
@@ -32,8 +33,9 @@ func DD(vars ...interface{}) {
 }
 
 type debugger struct {
-	indent string
-	out    io.Writer
+	out      io.Writer
+	indent   string
+	maxDepth int
 }
 
 // DP dumps variables in prettier format
@@ -149,9 +151,13 @@ func (d *debugger) dumpArrayOrSlice(bb *bytebufferpool.ByteBuffer, val reflect.V
 
 	_, _ = bb.WriteString("[")
 
-	for i, l := 0, val.Len(); i < l; i++ {
-		last := i == l-1
-		d.dumpElem(bb, val.Index(i).Interface(), lvl+1, last, isInterface)
+	if lvl <= d.maxDepth {
+		for i, l := 0, val.Len(); i < l; i++ {
+			last := i == l-1
+			d.dumpElem(bb, val.Index(i).Interface(), lvl+1, last, isInterface)
+		}
+	} else {
+		_, _ = bb.WriteString("...")
 	}
 
 	_ = bb.WriteByte(']')
@@ -168,6 +174,11 @@ func (d *debugger) dumpMap(bb *bytebufferpool.ByteBuffer, val reflect.Value, lvl
 	bb.B = strconv.AppendInt(bb.B, int64(l), 10)
 	_, _ = bb.WriteString(")\n")
 	_, _ = bb.WriteString(indent)
+
+	if lvl > d.maxDepth {
+		_, _ = bb.WriteString("{...}")
+		return
+	}
 
 	_, _ = bb.WriteString("{\n")
 
@@ -187,6 +198,11 @@ func (d *debugger) dumpMap(bb *bytebufferpool.ByteBuffer, val reflect.Value, lvl
 
 func (d *debugger) dumpStruct(bb *bytebufferpool.ByteBuffer, val reflect.Value, lvl int) {
 	indent := strings.Repeat(d.indent, lvl)
+	if lvl > d.maxDepth {
+		_, _ = bb.WriteString("{...}")
+		return
+	}
+
 	_, _ = bb.WriteString("{\n")
 
 	typ := val.Type()
