@@ -53,6 +53,7 @@ func (d *debugger) DP(vars ...interface{}) {
 	for i, v := range vars {
 		b.writeIndex(i + 1)
 		b.dump(v, 1)
+		b.writeNewLine()
 	}
 
 	if _, err := b.WriteTo(d.out); err != nil {
@@ -66,25 +67,24 @@ func (d *debugger) DD(vars ...interface{}) {
 	osExit(0)
 }
 
+const (
+	strInterface      = "interface {}"
+	strInterfaceKey   = strInterface + "]"
+	strInterfaceValue = "]" + strInterface
+)
+
 func (b *buffer) dump(v interface{}, lvl int) {
-	if v == nil {
-		_, _ = b.WriteString("<nil>\n")
+	if b.writeNil(v == nil) {
 		return
 	}
 
 	typStr, val, kind := normalize(v)
 
 	_, _ = b.WriteString(typStr)
+	b.writeNewLine()
+	b.writeIndent(lvl)
 
-	indent := strings.Repeat(b.indent, lvl)
-
-	if kind != reflect.Slice && kind != reflect.Map {
-		_ = b.WriteByte('\n')
-		_, _ = b.WriteString(indent)
-	}
-
-	if !val.IsValid() {
-		_, _ = b.WriteString("<nil>\n")
+	if b.writeNil(!val.IsValid()) {
 		return
 	}
 
@@ -96,114 +96,109 @@ func (b *buffer) dump(v interface{}, lvl int) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		b.B = strconv.AppendUint(b.B, val.Uint(), 10)
 	case reflect.String:
-		_ = b.WriteByte('"')
-		_, _ = b.WriteString(val.String())
-		_ = b.WriteByte('"')
+		b.writeString(val.String())
 	case reflect.Chan:
-		if val.IsNil() {
-			_, _ = b.WriteString("<nil>\n")
+		if b.writeNil(val.IsNil()) {
 			return
 		}
-		_, _ = b.WriteString(fmt.Sprintf("%v", val.Interface()))
-		_, _ = b.WriteString("(len=")
-		b.B = strconv.AppendInt(b.B, int64(val.Len()), 10)
-		_, _ = b.WriteString(", cap=")
-		b.B = strconv.AppendInt(b.B, int64(val.Cap()), 10)
-		_, _ = b.WriteString(")")
+		b.writeInterface(val.Interface())
+		b.writeLenAndCap(val.Len(), val.Cap())
 	case reflect.Func:
-		if val.IsNil() {
-			_, _ = b.WriteString("<nil>\n")
+		if b.writeNil(val.IsNil()) {
 			return
 		}
-		_, _ = b.WriteString(fmt.Sprintf("%v", val.Interface()))
+		b.writeInterface(val.Interface())
 	case reflect.Array:
 		b.dumpArrayOrSlice(val, lvl)
 	case reflect.Slice:
-		if val.IsNil() {
-			_ = b.WriteByte('\n')
-			_, _ = b.WriteString(indent)
-			_, _ = b.WriteString("<nil>\n")
+		if b.writeNil(val.IsNil()) {
 			return
 		}
-		_, _ = b.WriteString("\n")
-		_, _ = b.WriteString(indent)
-
 		b.dumpArrayOrSlice(val, lvl)
 	case reflect.Map:
 		b.dumpMap(val, lvl)
 	case reflect.Struct:
 		b.dumpStruct(val, lvl)
 	default:
-		_, _ = b.WriteString(fmt.Sprintf("%#v", val.Interface()))
+		b.writeInterface(val.Interface())
 	}
-
-	_ = b.WriteByte('\n')
 }
 
 func (b *buffer) dumpArrayOrSlice(val reflect.Value, lvl int) {
-	_, _ = b.WriteString("(len=")
-	b.B = strconv.AppendInt(b.B, int64(val.Len()), 10)
-	_, _ = b.WriteString(", cap=")
-	b.B = strconv.AppendInt(b.B, int64(val.Cap()), 10)
-	_, _ = b.WriteString(") ")
+	b.writeLenAndCap(val.Len(), val.Cap())
 
-	isInterface := strings.Contains(val.Type().String(), "interface {}")
-
-	_, _ = b.WriteString("[")
-
-	if lvl <= b.maxDepth {
-		for i, l := 0, val.Len(); i < l; i++ {
-			last := i == l-1
-			b.dumpElem(val.Index(i).Interface(), lvl+1, last, isInterface)
-		}
-	} else {
-		_, _ = b.WriteString("...")
+	if b.writeEllipsis(lvl, "[...]") {
+		return
 	}
 
-	_ = b.WriteByte(']')
+	isInterface := strings.Contains(val.Type().String(), strInterface)
+
+	b.writeBracket('[')
+	for i, l := 0, val.Len(); i < l; i++ {
+		newLine := b.dumpElem(val.Index(i).Interface(), lvl+1, isInterface)
+
+		if i != l-1 {
+			b.writeComma()
+			if !newLine {
+				b.writeSpace()
+			}
+		}
+
+		if i == l-1 && newLine {
+			b.writeComma()
+			b.writeNewLine()
+			b.writeIndent(lvl)
+		}
+	}
+	b.writeBracket(']')
 }
 
 func (b *buffer) dumpMap(val reflect.Value, lvl int) {
-	indent := strings.Repeat(b.indent, lvl)
-	isKeyInterface := strings.Contains(val.Type().String(), "interface {}]")
-	isValueInterface := strings.Contains(val.Type().String(), "]interface {}")
-
 	l := val.Len()
 
-	_, _ = b.WriteString("(len=")
-	b.B = strconv.AppendInt(b.B, int64(l), 10)
-	_, _ = b.WriteString(")\n")
-	_, _ = b.WriteString(indent)
+	b.writeLen(l)
+	b.writeSpace()
 
-	if lvl > b.maxDepth {
-		_, _ = b.WriteString("{...}")
+	if b.writeEllipsis(lvl, "{...}") {
 		return
 	}
 
-	_, _ = b.WriteString("{\n")
+	b.writeBracket('{')
+	b.writeNewLine()
+
+	isInterfaceKey := strings.Contains(val.Type().String(), strInterfaceKey)
+	isInterfaceValue := strings.Contains(val.Type().String(), strInterfaceValue)
 
 	var i int
 	for iter := val.MapRange(); iter.Next(); {
-		last := i == l-1
-		b.dumpMapKey(iter.Key().Interface(), lvl+1, isKeyInterface)
-		_, _ = b.WriteString(" : ")
-		b.dumpValue(iter.Value().Interface(), lvl+1, last, isValueInterface)
+		b.writeIndent(lvl + 1)
+
+		b.dumpMapKey(iter.Key().Interface(), lvl+1, isInterfaceKey)
+
+		b.writeColon()
+
+		b.dumpValue(iter.Value().Interface(), lvl+1, isInterfaceValue)
+
+		b.writeComma()
+		if i != l-1 {
+			b.writeNewLine()
+		}
+
 		i++
 	}
 
-	_, _ = b.WriteString("\n")
-	_, _ = b.WriteString(indent)
-	_ = b.WriteByte('}')
+	b.writeNewLine()
+	b.writeIndent(lvl)
+	b.writeBracket('}')
 }
 
 func (b *buffer) dumpStruct(val reflect.Value, lvl int) {
-	indent := strings.Repeat(b.indent, lvl)
-	if lvl > b.maxDepth {
-		_, _ = b.WriteString("{...}")
+	if b.writeEllipsis(lvl, "{...}") {
 		return
 	}
 
-	_, _ = b.WriteString("{\n")
+	b.writeBracket('{')
+	b.writeNewLine()
 
 	typ := val.Type()
 
@@ -211,54 +206,49 @@ func (b *buffer) dumpStruct(val reflect.Value, lvl int) {
 	clone.Set(val)
 
 	for i, l := 0, val.NumField(); i < l; i++ {
-		_, _ = b.WriteString(strings.Repeat(b.indent, lvl+1))
+		b.writeIndent(lvl + 1)
 		_, _ = b.WriteString(typ.Field(i).Name)
-		_, _ = b.WriteString(" : ")
 
-		typStr := typ.Field(i).Type.String()
-		_, _ = b.WriteString("(")
-		_, _ = b.WriteString(typStr)
-		_, _ = b.WriteString(") ")
+		b.writeColon()
+
+		b.writeInterfaceType(typ.Field(i).Type.String())
 
 		f := clone.Field(i)
 		/* #nosec G103 */
 		f = reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem()
 
-		last := i == l-1
-		b.dumpValue(f.Interface(), lvl+1, last, false)
+		b.dumpValue(f.Interface(), lvl+1, false)
+
+		b.writeComma()
+		if i != l-1 {
+			b.writeNewLine()
+		}
 	}
 
-	_, _ = b.WriteString("\n")
-	_, _ = b.WriteString(indent)
-	_ = b.WriteByte('}')
+	b.writeNewLine()
+	b.writeIndent(lvl)
+	b.writeBracket('}')
 }
 
-func (b *buffer) dumpElem(v interface{}, lvl int, last, isInterface bool) {
-	if v == nil {
-		_, _ = b.WriteString("<nil>")
-		if !last {
-			_, _ = b.WriteString(", ")
-		}
-		return
+func (b *buffer) dumpElem(v interface{}, lvl int, isInterface bool) bool {
+	if b.writeNil(v == nil) {
+		return false
 	}
 
 	typStr, val, kind := normalize(v)
 
-	if isInterface && kind != reflect.Slice && kind != reflect.Map && kind != reflect.Struct {
-		_, _ = b.WriteString("(")
-		_, _ = b.WriteString(typStr)
-		_, _ = b.WriteString(") ")
+	if kind == reflect.Slice || kind == reflect.Map || kind == reflect.Struct {
+		b.writeNewLine()
+		b.writeIndent(lvl)
 	}
 
-	if !val.IsValid() {
-		_, _ = b.WriteString("<nil>")
-		if !last {
-			_, _ = b.WriteString(", ")
-		}
-		return
+	if isInterface {
+		b.writeInterfaceType(typStr)
 	}
 
-	indent := strings.Repeat(b.indent, lvl)
+	if b.writeNil(!val.IsValid()) {
+		return false
+	}
 
 	switch kind {
 	case reflect.Bool:
@@ -268,110 +258,49 @@ func (b *buffer) dumpElem(v interface{}, lvl int, last, isInterface bool) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		b.B = strconv.AppendUint(b.B, val.Uint(), 10)
 	case reflect.String:
-		_ = b.WriteByte('"')
-		_, _ = b.WriteString(val.String())
-		_ = b.WriteByte('"')
+		b.writeString(val.String())
 	case reflect.Chan:
-		if val.IsNil() {
-			_, _ = b.WriteString("<nil>")
+		if b.writeNil(val.IsNil()) {
 			break
 		}
-		_, _ = b.WriteString(fmt.Sprintf("%v", val.Interface()))
-		_, _ = b.WriteString("(len=")
-		b.B = strconv.AppendInt(b.B, int64(val.Len()), 10)
-		_, _ = b.WriteString(", cap=")
-		b.B = strconv.AppendInt(b.B, int64(val.Cap()), 10)
-		_, _ = b.WriteString(")")
-
+		b.writeInterface(val.Interface())
+		b.writeLenAndCap(val.Len(), val.Cap())
 	case reflect.Func:
-		if val.IsNil() {
-			_, _ = b.WriteString("<nil>")
+		if b.writeNil(val.IsNil()) {
 			break
 		}
-		_, _ = b.WriteString(fmt.Sprintf("%v", val.Interface()))
+		b.writeInterface(val.Interface())
 	case reflect.Array:
 		b.dumpArrayOrSlice(val, lvl)
 	case reflect.Slice:
-		_, _ = b.WriteString("\n")
-		_, _ = b.WriteString(indent)
-
-		_, _ = b.WriteString("(")
-		_, _ = b.WriteString(typStr)
-		_, _ = b.WriteString(") ")
-
-		if val.IsNil() {
-			_, _ = b.WriteString("<nil>")
-		} else {
+		if !b.writeNil(val.IsNil()) {
 			b.dumpArrayOrSlice(val, lvl)
 		}
-
-		if last {
-			_, _ = b.WriteString(",\n")
-			_, _ = b.WriteString(strings.Repeat(b.indent, lvl-1))
-			return
-		}
 	case reflect.Map:
-		_, _ = b.WriteString("\n")
-		_, _ = b.WriteString(indent)
-
-		_, _ = b.WriteString("(")
-		_, _ = b.WriteString(typStr)
-		_, _ = b.WriteString(") ")
-
-		if val.IsNil() {
-			_, _ = b.WriteString("<nil>")
-		} else {
+		if !b.writeNil(val.IsNil()) {
 			b.dumpMap(val, lvl)
 		}
-
-		if last {
-			_, _ = b.WriteString(",\n")
-			_, _ = b.WriteString(strings.Repeat(b.indent, lvl-1))
-			return
-		}
 	case reflect.Struct:
-		_, _ = b.WriteString("\n")
-		_, _ = b.WriteString(indent)
-
-		_, _ = b.WriteString("(")
-		_, _ = b.WriteString(typStr)
-		_, _ = b.WriteString(") ")
-
 		b.dumpStruct(val, lvl)
-
-		if last {
-			_, _ = b.WriteString(",\n")
-			_, _ = b.WriteString(strings.Repeat(b.indent, lvl-1))
-			return
-		}
 	default:
-		_, _ = b.WriteString(fmt.Sprintf("%v", val.Interface()))
+		b.writeInterface(val.Interface())
 	}
 
-	if !last {
-		_, _ = b.WriteString(", ")
-	}
+	return kind == reflect.Slice || kind == reflect.Map || kind == reflect.Struct
 }
 
 func (b *buffer) dumpMapKey(key interface{}, lvl int, isInterface bool) {
-	indent := strings.Repeat(b.indent, lvl)
-	_, _ = b.WriteString(indent)
-
-	if key == nil {
-		_, _ = b.WriteString("<nil>")
+	if b.writeNil(key == nil) {
 		return
 	}
 
 	typStr, val, kind := normalize(key)
 
 	if isInterface {
-		_, _ = b.WriteString("(")
-		_, _ = b.WriteString(typStr)
-		_, _ = b.WriteString(") ")
+		b.writeInterfaceType(typStr)
 	}
 
-	if !val.IsValid() {
-		_, _ = b.WriteString("<nil>")
+	if b.writeNil(!val.IsValid()) {
 		return
 	}
 
@@ -383,49 +312,37 @@ func (b *buffer) dumpMapKey(key interface{}, lvl int, isInterface bool) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		b.B = strconv.AppendUint(b.B, val.Uint(), 10)
 	case reflect.String:
-		_ = b.WriteByte('"')
-		_, _ = b.WriteString(val.String())
-		_ = b.WriteByte('"')
+		b.writeString(val.String())
 	case reflect.Chan:
-		if val.IsNil() {
-			_, _ = b.WriteString("<nil>\n")
+		if b.writeNil(val.IsNil()) {
 			return
 		}
-		_, _ = b.WriteString(fmt.Sprintf("%v", val.Interface()))
-		_, _ = b.WriteString("(len=")
-		b.B = strconv.AppendInt(b.B, int64(val.Len()), 10)
-		_, _ = b.WriteString(", cap=")
-		b.B = strconv.AppendInt(b.B, int64(val.Cap()), 10)
-		_, _ = b.WriteString(")")
+		b.writeInterface(val.Interface())
+		b.writeLenAndCap(val.Len(), val.Cap())
+	case reflect.Array:
+		b.dumpArrayOrSlice(val, lvl)
 	case reflect.Struct:
+		if b.writeNil(val.IsNil()) {
+			return
+		}
 		b.dumpStruct(val, lvl+1)
 	default:
-		_, _ = b.WriteString(fmt.Sprintf("%#v", val.Interface()))
+		b.writeInterface(val.Interface())
 	}
 }
 
-func (b *buffer) dumpValue(v interface{}, lvl int, last, isInterface bool) {
-	if v == nil {
-		_, _ = b.WriteString("<nil>,")
-		if !last {
-			_, _ = b.WriteString("\n")
-		}
+func (b *buffer) dumpValue(v interface{}, lvl int, isInterface bool) {
+	if b.writeNil(v == nil) {
 		return
 	}
 
 	typStr, val, kind := normalize(v)
 
 	if isInterface {
-		_, _ = b.WriteString("(")
-		_, _ = b.WriteString(typStr)
-		_, _ = b.WriteString(") ")
+		b.writeInterfaceType(typStr)
 	}
 
-	if !val.IsValid() {
-		_, _ = b.WriteString("<nil>,")
-		if !last {
-			_, _ = b.WriteString("\n")
-		}
+	if b.writeNil(!val.IsValid()) {
 		return
 	}
 
@@ -437,48 +354,32 @@ func (b *buffer) dumpValue(v interface{}, lvl int, last, isInterface bool) {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		b.B = strconv.AppendUint(b.B, val.Uint(), 10)
 	case reflect.String:
-		_ = b.WriteByte('"')
-		_, _ = b.WriteString(val.String())
-		_ = b.WriteByte('"')
+		b.writeString(val.String())
 	case reflect.Chan:
-		if val.IsNil() {
-			_, _ = b.WriteString("<nil>")
-			break
+		if b.writeNil(val.IsNil()) {
+			return
 		}
-		_, _ = b.WriteString(fmt.Sprintf("%v", val.Interface()))
-		_, _ = b.WriteString("(len=")
-		b.B = strconv.AppendInt(b.B, int64(val.Len()), 10)
-		_, _ = b.WriteString(", cap=")
-		b.B = strconv.AppendInt(b.B, int64(val.Cap()), 10)
-		_, _ = b.WriteString(")")
+		b.writeInterface(val.Interface())
+		b.writeLenAndCap(val.Len(), val.Cap())
 	case reflect.Array:
 		b.dumpArrayOrSlice(val, lvl)
 	case reflect.Slice:
-		if val.IsNil() {
-			_, _ = b.WriteString("<nil>")
-			break
+		if b.writeNil(val.IsNil()) {
+			return
 		}
-
 		b.dumpArrayOrSlice(val, lvl)
 	case reflect.Map:
-		if val.IsNil() {
-			_, _ = b.WriteString("<nil>")
-			break
+		if b.writeNil(val.IsNil()) {
+			return
 		}
 		b.dumpMap(val, lvl+1)
 	case reflect.Struct:
-		if val.IsNil() {
-			_, _ = b.WriteString("<nil>")
-			break
+		if b.writeNil(val.IsNil()) {
+			return
 		}
 		b.dumpStruct(val, lvl+1)
 	default:
-		_, _ = b.WriteString(fmt.Sprintf("%v", val.Interface()))
-	}
-
-	_, _ = b.WriteString(",")
-	if !last {
-		_, _ = b.WriteString("\n")
+		b.writeInterface(val.Interface())
 	}
 }
 
@@ -519,4 +420,73 @@ func put(b *buffer) {
 func (b *buffer) writeIndex(n int) {
 	b.B = strconv.AppendInt(b.B, int64(n), 10)
 	_ = b.WriteByte(' ')
+}
+
+func (b *buffer) writeNil(condition bool) bool {
+	if condition {
+		_, _ = b.WriteString("<nil>")
+	}
+	return condition
+}
+
+func (b *buffer) writeNewLine() {
+	_ = b.WriteByte('\n')
+}
+
+func (b *buffer) writeInterfaceType(s string) {
+	_ = b.WriteByte('(')
+	_, _ = b.WriteString(s)
+	_, _ = b.WriteString(") ")
+}
+
+func (b *buffer) writeLen(l int) {
+	_, _ = b.WriteString("(len=")
+	b.B = strconv.AppendInt(b.B, int64(l), 10)
+	_ = b.WriteByte(')')
+}
+
+func (b *buffer) writeLenAndCap(l, c int) {
+	_, _ = b.WriteString("(len=")
+	b.B = strconv.AppendInt(b.B, int64(l), 10)
+	_, _ = b.WriteString(", cap=")
+	b.B = strconv.AppendInt(b.B, int64(c), 10)
+	_ = b.WriteByte(')')
+}
+
+func (b *buffer) writeString(s string) {
+	_ = b.WriteByte('"')
+	_, _ = b.WriteString(s)
+	_ = b.WriteByte('"')
+}
+
+func (b *buffer) writeIndent(lvl int) {
+	_, _ = b.WriteString(strings.Repeat(b.indent, lvl))
+}
+
+func (b *buffer) writeColon() {
+	_, _ = b.WriteString(" : ")
+}
+
+func (b *buffer) writeComma() {
+	_ = b.WriteByte(',')
+}
+
+func (b *buffer) writeSpace() {
+	_ = b.WriteByte(' ')
+}
+
+func (b *buffer) writeBracket(c byte) {
+	_ = b.WriteByte(c)
+}
+
+func (b *buffer) writeInterface(v interface{}) {
+	_, _ = b.WriteString(fmt.Sprintf("%v", v))
+}
+
+func (b *buffer) writeEllipsis(lvl int, s string) bool {
+	if lvl > b.maxDepth {
+		_, _ = b.WriteString(s)
+		return true
+	}
+	return false
 }
