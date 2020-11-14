@@ -210,14 +210,6 @@ func (d *debugger) dumpStruct(bb *bytebufferpool.ByteBuffer, val reflect.Value, 
 		d.dumpValue(bb, f.Interface(), lvl+1, last, isInterface)
 	}
 
-	//for iter := val.MapRange(); iter.Next(); {
-	//	last := i == l-1
-	//	d.dumpMapKey(bb, iter.Key().Interface(), lvl+1, isKeyInterface)
-	//	_, _ = bb.WriteString(" : ")
-	//	d.dumpValue(bb, iter.Value().Interface(), lvl+1, last, isValueInterface)
-	//	i++
-	//}
-
 	_, _ = bb.WriteString("\n")
 	_, _ = bb.WriteString(indent)
 	_ = bb.WriteByte('}')
@@ -237,7 +229,7 @@ func (d *debugger) dumpElem(bb *bytebufferpool.ByteBuffer, v interface{}, lvl in
 	if isInterface && kind != reflect.Slice {
 		_, _ = bb.WriteString("(")
 		_, _ = bb.WriteString(typStr)
-		_, _ = bb.WriteString(")")
+		_, _ = bb.WriteString(") ")
 	}
 
 	if !val.IsValid() {
@@ -288,7 +280,7 @@ func (d *debugger) dumpElem(bb *bytebufferpool.ByteBuffer, v interface{}, lvl in
 
 		_, _ = bb.WriteString("(")
 		_, _ = bb.WriteString(typStr)
-		_, _ = bb.WriteString(")")
+		_, _ = bb.WriteString(") ")
 
 		if val.IsNil() {
 			_, _ = bb.WriteString("<nil>")
@@ -301,8 +293,10 @@ func (d *debugger) dumpElem(bb *bytebufferpool.ByteBuffer, v interface{}, lvl in
 			_, _ = bb.WriteString(strings.Repeat(d.indent, lvl-1))
 			return
 		}
-	case reflect.Map, reflect.Struct:
-		_, _ = bb.WriteString(fmt.Sprintf("%#v", v))
+	case reflect.Map:
+		d.dumpMap(bb, val, lvl+1)
+	case reflect.Struct:
+		d.dumpStruct(bb, val, lvl+1)
 	default:
 		_, _ = bb.WriteString(fmt.Sprintf("%v", val.Interface()))
 	}
@@ -355,7 +349,7 @@ func (d *debugger) dumpMapKey(bb *bytebufferpool.ByteBuffer, key interface{}, lv
 		_, _ = bb.WriteString(", cap=")
 		bb.B = strconv.AppendInt(bb.B, int64(val.Cap()), 10)
 	case reflect.Struct:
-		_, _ = bb.WriteString(fmt.Sprintf("%#v", val.Interface()))
+		d.dumpStruct(bb, val, lvl+1)
 	default:
 		_, _ = bb.WriteString(fmt.Sprintf("%#v", val.Interface()))
 	}
@@ -375,12 +369,18 @@ func (d *debugger) dumpValue(bb *bytebufferpool.ByteBuffer, v interface{}, lvl i
 	if isInterface {
 		_, _ = bb.WriteString("(")
 		_, _ = bb.WriteString(typStr)
-		_, _ = bb.WriteString(")")
+		_, _ = bb.WriteString(") ")
+	}
+
+	if !val.IsValid() {
+		_, _ = bb.WriteString("<nil>\n")
+		return
 	}
 
 	switch kind {
 	case reflect.Bool:
 		_, _ = bb.WriteString(fmt.Sprintf("%#v", val))
+		bb.B = strconv.AppendBool(bb.B, val.Bool())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		bb.B = strconv.AppendInt(bb.B, val.Int(), 10)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -400,7 +400,25 @@ func (d *debugger) dumpValue(bb *bytebufferpool.ByteBuffer, v interface{}, lvl i
 		_, _ = bb.WriteString(", cap=")
 		bb.B = strconv.AppendInt(bb.B, int64(val.Cap()), 10)
 		_, _ = bb.WriteString(")")
+	case reflect.Array:
+		d.dumpArrayOrSlice(bb, val, lvl)
+	case reflect.Slice:
+		if val.IsNil() {
+			_, _ = bb.WriteString("<nil>")
+		} else {
+			d.dumpArrayOrSlice(bb, val, lvl)
+		}
+	case reflect.Map:
+		if val.IsNil() {
+			_, _ = bb.WriteString("<nil>")
+			break
+		}
+		d.dumpMap(bb, val, lvl+1)
 	case reflect.Struct:
+		if val.IsNil() {
+			_, _ = bb.WriteString("<nil>")
+			break
+		}
 		d.dumpStruct(bb, val, lvl+1)
 	default:
 		_, _ = bb.WriteString(fmt.Sprintf("%v", val.Interface()))
@@ -418,7 +436,7 @@ func normalize(v interface{}) (string, reflect.Value, reflect.Kind) {
 
 	typStr := typ.String()
 
-	for typ.Kind() == reflect.Ptr {
+	for typ.Kind() == reflect.Ptr && val.IsValid() {
 		val = val.Elem()
 		typ = typ.Elem()
 	}
