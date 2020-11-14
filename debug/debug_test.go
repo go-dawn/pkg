@@ -32,6 +32,7 @@ type fake struct {
 }
 
 func Test_Debug_Dump(t *testing.T) {
+	dbg.DP(1)
 	dbg.DP(make(chan *fake, 2), fake{
 		b: []byte("bbb"),
 		B: []interface{}{
