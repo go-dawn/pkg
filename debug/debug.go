@@ -71,6 +71,7 @@ const (
 	strInterface      = "interface {}"
 	strInterfaceKey   = strInterface + "]"
 	strInterfaceValue = "]" + strInterface
+	strNil            = "<nil>"
 )
 
 func (b *buffer) dump(v interface{}, lvl int) {
@@ -116,6 +117,9 @@ func (b *buffer) dump(v interface{}, lvl int) {
 		}
 		b.dumpArrayOrSlice(val, lvl)
 	case reflect.Map:
+		if b.writeNil(val.IsNil()) {
+			return
+		}
 		b.dumpMap(val, lvl)
 	case reflect.Struct:
 		b.dumpStruct(val, lvl)
@@ -135,7 +139,8 @@ func (b *buffer) dumpArrayOrSlice(val reflect.Value, lvl int) {
 
 	b.writeBracket('[')
 	for i, l := 0, val.Len(); i < l; i++ {
-		newLine := b.dumpElem(val.Index(i).Interface(), lvl+1, isInterface)
+		var newLine bool
+		b.dumpElem(val.Index(i).Interface(), lvl+1, isInterface, &newLine)
 
 		if i != l-1 {
 			b.writeComma()
@@ -230,9 +235,9 @@ func (b *buffer) dumpStruct(val reflect.Value, lvl int) {
 	b.writeBracket('}')
 }
 
-func (b *buffer) dumpElem(v interface{}, lvl int, isInterface bool) bool {
+func (b *buffer) dumpElem(v interface{}, lvl int, isInterface bool, newLine *bool) {
 	if b.writeNil(v == nil) {
-		return false
+		return
 	}
 
 	typStr, val, kind := normalize(v)
@@ -240,6 +245,7 @@ func (b *buffer) dumpElem(v interface{}, lvl int, isInterface bool) bool {
 	if kind == reflect.Slice || kind == reflect.Map || kind == reflect.Struct {
 		b.writeNewLine()
 		b.writeIndent(lvl)
+		*newLine = true
 	}
 
 	if isInterface {
@@ -247,7 +253,7 @@ func (b *buffer) dumpElem(v interface{}, lvl int, isInterface bool) bool {
 	}
 
 	if b.writeNil(!val.IsValid()) {
-		return false
+		return
 	}
 
 	switch kind {
@@ -261,21 +267,22 @@ func (b *buffer) dumpElem(v interface{}, lvl int, isInterface bool) bool {
 		b.writeString(val.String())
 	case reflect.Chan:
 		if b.writeNil(val.IsNil()) {
-			break
+			return
 		}
 		b.writeInterface(val.Interface())
 		b.writeLenAndCap(val.Len(), val.Cap())
 	case reflect.Func:
 		if b.writeNil(val.IsNil()) {
-			break
+			return
 		}
 		b.writeInterface(val.Interface())
 	case reflect.Array:
 		b.dumpArrayOrSlice(val, lvl)
 	case reflect.Slice:
-		if !b.writeNil(val.IsNil()) {
-			b.dumpArrayOrSlice(val, lvl)
+		if b.writeNil(val.IsNil()) {
+			return
 		}
+		b.dumpArrayOrSlice(val, lvl)
 	case reflect.Map:
 		if !b.writeNil(val.IsNil()) {
 			b.dumpMap(val, lvl)
@@ -285,8 +292,6 @@ func (b *buffer) dumpElem(v interface{}, lvl int, isInterface bool) bool {
 	default:
 		b.writeInterface(val.Interface())
 	}
-
-	return kind == reflect.Slice || kind == reflect.Map || kind == reflect.Struct
 }
 
 func (b *buffer) dumpMapKey(key interface{}, lvl int, isInterface bool) {
@@ -319,13 +324,15 @@ func (b *buffer) dumpMapKey(key interface{}, lvl int, isInterface bool) {
 		}
 		b.writeInterface(val.Interface())
 		b.writeLenAndCap(val.Len(), val.Cap())
-	case reflect.Array:
-		b.dumpArrayOrSlice(val, lvl)
-	case reflect.Struct:
+	case reflect.Func:
 		if b.writeNil(val.IsNil()) {
 			return
 		}
-		b.dumpStruct(val, lvl+1)
+		b.writeInterface(val.Interface())
+	case reflect.Array:
+		b.dumpArrayOrSlice(val, lvl)
+	case reflect.Struct:
+		b.dumpStruct(val, lvl)
 	default:
 		b.writeInterface(val.Interface())
 	}
@@ -372,12 +379,9 @@ func (b *buffer) dumpValue(v interface{}, lvl int, isInterface bool) {
 		if b.writeNil(val.IsNil()) {
 			return
 		}
-		b.dumpMap(val, lvl+1)
+		b.dumpMap(val, lvl)
 	case reflect.Struct:
-		if b.writeNil(val.IsNil()) {
-			return
-		}
-		b.dumpStruct(val, lvl+1)
+		b.dumpStruct(val, lvl)
 	default:
 		b.writeInterface(val.Interface())
 	}
@@ -424,7 +428,7 @@ func (b *buffer) writeIndex(n int) {
 
 func (b *buffer) writeNil(condition bool) bool {
 	if condition {
-		_, _ = b.WriteString("<nil>")
+		_, _ = b.WriteString(strNil)
 	}
 	return condition
 }
