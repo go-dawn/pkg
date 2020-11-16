@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,11 +51,15 @@ func (d *debugger) DP(vars ...interface{}) {
 	b := get(d.indent, d.maxDepth)
 	defer put(b)
 
+	b.writeTrace()
+
 	for i, v := range vars {
 		b.writeIndex(i + 1)
 		b.dump(v, 1)
 		b.writeNewLine()
 	}
+
+	b.writeNewLine()
 
 	if _, err := b.WriteTo(d.out); err != nil {
 		panic(err)
@@ -380,4 +385,12 @@ func (b *buffer) writeEllipsis(lvl int, s string) bool {
 		return true
 	}
 	return false
+}
+
+func (b *buffer) writeTrace() {
+	if _, file, line, ok := runtime.Caller(2); ok {
+		b.writeString(file + ":")
+		b.B = strconv.AppendInt(b.B, int64(line), 10)
+		b.writeNewLine()
+	}
 }
