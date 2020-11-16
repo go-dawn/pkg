@@ -26,7 +26,7 @@ var osExit = deck.OsExit
 // dbg default debugger
 var dbg = &debugger{
 	out:      os.Stdout,
-	indent:   "..",
+	indent:   "  ",
 	maxDepth: 5,
 }
 
@@ -81,7 +81,7 @@ const (
 
 func (b *buffer) dump(v interface{}, lvl int) {
 	preFn := func(typStr string, kind reflect.Kind) {
-		b.writeString(typStr)
+		b.writeString(b.formatType(typStr))
 		b.writeNewLine()
 		b.writeIndent(lvl)
 	}
@@ -177,7 +177,7 @@ func (b *buffer) dumpStruct(val reflect.Value, lvl int) {
 
 	for i, l := 0, val.NumField(); i < l; i++ {
 		b.writeIndent(lvl + 1)
-		b.writeString(typ.Field(i).Name)
+		b.writeString(b.formatType(typ.Field(i).Name))
 
 		b.writeColon()
 
@@ -393,4 +393,11 @@ func (b *buffer) writeTrace() {
 		b.B = strconv.AppendInt(b.B, int64(line), 10)
 		b.writeNewLine()
 	}
+}
+
+func (b *buffer) formatType(s string) string {
+	return strings.NewReplacer(
+		"[]uint8", "[]byte",
+		"[]int32", "[]rune",
+	).Replace(s)
 }
