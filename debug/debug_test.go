@@ -46,8 +46,6 @@ func Test_Debug_Dump(t *testing.T) {
 			[2]string{"c", "d"}: 23,
 		},
 		p: unsafe.Pointer(&fake{}),
-		Y: []*fake{{}, {}},
-		Z: []map[int]int{{1: 1}, {2: 2, 3: 3}},
 	},
 	)
 }

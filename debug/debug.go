@@ -75,57 +75,13 @@ const (
 )
 
 func (b *buffer) dump(v interface{}, lvl int) {
-	if b.writeNil(v == nil) {
-		return
+	preFn := func(typStr string, kind reflect.Kind) {
+		b.writeString(typStr)
+		b.writeNewLine()
+		b.writeIndent(lvl)
 	}
 
-	typStr, val, kind := normalize(v)
-
-	_, _ = b.WriteString(typStr)
-	b.writeNewLine()
-	b.writeIndent(lvl)
-
-	if b.writeNil(!val.IsValid()) {
-		return
-	}
-
-	switch kind {
-	case reflect.Bool:
-		b.B = strconv.AppendBool(b.B, val.Bool())
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		b.B = strconv.AppendInt(b.B, val.Int(), 10)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		b.B = strconv.AppendUint(b.B, val.Uint(), 10)
-	case reflect.String:
-		b.writeString(val.String())
-	case reflect.Chan:
-		if b.writeNil(val.IsNil()) {
-			return
-		}
-		b.writeInterface(val.Interface())
-		b.writeLenAndCap(val.Len(), val.Cap())
-	case reflect.Func:
-		if b.writeNil(val.IsNil()) {
-			return
-		}
-		b.writeInterface(val.Interface())
-	case reflect.Array:
-		b.dumpArrayOrSlice(val, lvl)
-	case reflect.Slice:
-		if b.writeNil(val.IsNil()) {
-			return
-		}
-		b.dumpArrayOrSlice(val, lvl)
-	case reflect.Map:
-		if b.writeNil(val.IsNil()) {
-			return
-		}
-		b.dumpMap(val, lvl)
-	case reflect.Struct:
-		b.dumpStruct(val, lvl)
-	default:
-		b.writeInterface(val.Interface())
-	}
+	b.dumpInterface(v, lvl, preFn)
 }
 
 func (b *buffer) dumpArrayOrSlice(val reflect.Value, lvl int) {
@@ -171,18 +127,22 @@ func (b *buffer) dumpMap(val reflect.Value, lvl int) {
 	b.writeBracket('{')
 	b.writeNewLine()
 
-	isInterfaceKey := strings.Contains(val.Type().String(), strInterfaceKey)
-	isInterfaceValue := strings.Contains(val.Type().String(), strInterfaceValue)
+	typStr := val.Type().String()
+	isInterfaceKey := strings.Contains(typStr, strInterfaceKey)
+	isInterfaceValue := strings.Contains(typStr, strInterfaceValue)
 
-	var i int
+	var (
+		i       int
+		nextLvl = lvl + 1
+	)
 	for iter := val.MapRange(); iter.Next(); {
-		b.writeIndent(lvl + 1)
+		b.writeIndent(nextLvl)
 
-		b.dumpMapKey(iter.Key().Interface(), lvl+1, isInterfaceKey)
+		b.dumpValue(iter.Key().Interface(), nextLvl, isInterfaceKey)
 
 		b.writeColon()
 
-		b.dumpValue(iter.Value().Interface(), lvl+1, isInterfaceValue)
+		b.dumpValue(iter.Value().Interface(), nextLvl, isInterfaceValue)
 
 		b.writeComma()
 		if i != l-1 {
@@ -212,7 +172,7 @@ func (b *buffer) dumpStruct(val reflect.Value, lvl int) {
 
 	for i, l := 0, val.NumField(); i < l; i++ {
 		b.writeIndent(lvl + 1)
-		_, _ = b.WriteString(typ.Field(i).Name)
+		b.writeString(typ.Field(i).Name)
 
 		b.writeColon()
 
@@ -236,20 +196,42 @@ func (b *buffer) dumpStruct(val reflect.Value, lvl int) {
 }
 
 func (b *buffer) dumpElem(v interface{}, lvl int, isInterface bool, newLine *bool) {
+	preFn := func(typStr string, kind reflect.Kind) {
+		if kind == reflect.Slice || kind == reflect.Map || kind == reflect.Struct {
+			b.writeNewLine()
+			b.writeIndent(lvl)
+			*newLine = true
+		}
+
+		if isInterface {
+			b.writeInterfaceType(typStr)
+		}
+	}
+
+	b.dumpInterface(v, lvl, preFn)
+}
+
+func (b *buffer) dumpValue(v interface{}, lvl int, isInterface bool) {
+	preFn := func(typStr string, kind reflect.Kind) {
+		if isInterface {
+			b.writeInterfaceType(typStr)
+		}
+	}
+
+	b.dumpInterface(v, lvl, preFn)
+}
+
+type preHandler func(typStr string, kind reflect.Kind)
+
+func (b *buffer) dumpInterface(v interface{}, lvl int, preFn preHandler) {
 	if b.writeNil(v == nil) {
 		return
 	}
 
 	typStr, val, kind := normalize(v)
 
-	if kind == reflect.Slice || kind == reflect.Map || kind == reflect.Struct {
-		b.writeNewLine()
-		b.writeIndent(lvl)
-		*newLine = true
-	}
-
-	if isInterface {
-		b.writeInterfaceType(typStr)
+	if preFn != nil {
+		preFn(typStr, kind)
 	}
 
 	if b.writeNil(!val.IsValid()) {
@@ -264,124 +246,25 @@ func (b *buffer) dumpElem(v interface{}, lvl int, isInterface bool, newLine *boo
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		b.B = strconv.AppendUint(b.B, val.Uint(), 10)
 	case reflect.String:
-		b.writeString(val.String())
+		b.writeWrapperString(val.String())
 	case reflect.Chan:
 		if b.writeNil(val.IsNil()) {
 			return
 		}
 		b.writeInterface(val.Interface())
 		b.writeLenAndCap(val.Len(), val.Cap())
-	case reflect.Func:
-		if b.writeNil(val.IsNil()) {
-			return
-		}
-		b.writeInterface(val.Interface())
 	case reflect.Array:
 		b.dumpArrayOrSlice(val, lvl)
+	case reflect.Struct:
+		b.dumpStruct(val, lvl)
 	case reflect.Slice:
-		if b.writeNil(val.IsNil()) {
-			return
+		if !b.writeNil(val.IsNil()) {
+			b.dumpArrayOrSlice(val, lvl)
 		}
-		b.dumpArrayOrSlice(val, lvl)
 	case reflect.Map:
 		if !b.writeNil(val.IsNil()) {
 			b.dumpMap(val, lvl)
 		}
-	case reflect.Struct:
-		b.dumpStruct(val, lvl)
-	default:
-		b.writeInterface(val.Interface())
-	}
-}
-
-func (b *buffer) dumpMapKey(key interface{}, lvl int, isInterface bool) {
-	if b.writeNil(key == nil) {
-		return
-	}
-
-	typStr, val, kind := normalize(key)
-
-	if isInterface {
-		b.writeInterfaceType(typStr)
-	}
-
-	if b.writeNil(!val.IsValid()) {
-		return
-	}
-
-	switch kind {
-	case reflect.Bool:
-		b.B = strconv.AppendBool(b.B, val.Bool())
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		b.B = strconv.AppendInt(b.B, val.Int(), 10)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		b.B = strconv.AppendUint(b.B, val.Uint(), 10)
-	case reflect.String:
-		b.writeString(val.String())
-	case reflect.Chan:
-		if b.writeNil(val.IsNil()) {
-			return
-		}
-		b.writeInterface(val.Interface())
-		b.writeLenAndCap(val.Len(), val.Cap())
-	case reflect.Func:
-		if b.writeNil(val.IsNil()) {
-			return
-		}
-		b.writeInterface(val.Interface())
-	case reflect.Array:
-		b.dumpArrayOrSlice(val, lvl)
-	case reflect.Struct:
-		b.dumpStruct(val, lvl)
-	default:
-		b.writeInterface(val.Interface())
-	}
-}
-
-func (b *buffer) dumpValue(v interface{}, lvl int, isInterface bool) {
-	if b.writeNil(v == nil) {
-		return
-	}
-
-	typStr, val, kind := normalize(v)
-
-	if isInterface {
-		b.writeInterfaceType(typStr)
-	}
-
-	if b.writeNil(!val.IsValid()) {
-		return
-	}
-
-	switch kind {
-	case reflect.Bool:
-		b.B = strconv.AppendBool(b.B, val.Bool())
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		b.B = strconv.AppendInt(b.B, val.Int(), 10)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		b.B = strconv.AppendUint(b.B, val.Uint(), 10)
-	case reflect.String:
-		b.writeString(val.String())
-	case reflect.Chan:
-		if b.writeNil(val.IsNil()) {
-			return
-		}
-		b.writeInterface(val.Interface())
-		b.writeLenAndCap(val.Len(), val.Cap())
-	case reflect.Array:
-		b.dumpArrayOrSlice(val, lvl)
-	case reflect.Slice:
-		if b.writeNil(val.IsNil()) {
-			return
-		}
-		b.dumpArrayOrSlice(val, lvl)
-	case reflect.Map:
-		if b.writeNil(val.IsNil()) {
-			return
-		}
-		b.dumpMap(val, lvl)
-	case reflect.Struct:
-		b.dumpStruct(val, lvl)
 	default:
 		b.writeInterface(val.Interface())
 	}
@@ -458,6 +341,10 @@ func (b *buffer) writeLenAndCap(l, c int) {
 }
 
 func (b *buffer) writeString(s string) {
+	_, _ = b.WriteString(s)
+}
+
+func (b *buffer) writeWrapperString(s string) {
 	_ = b.WriteByte('"')
 	_, _ = b.WriteString(s)
 	_ = b.WriteByte('"')
