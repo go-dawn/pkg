@@ -327,7 +327,7 @@ func (b *buffer) writeNewLine() {
 
 func (b *buffer) writeInterfaceType(s string) {
 	_ = b.WriteByte('(')
-	_, _ = b.WriteString(s)
+	_, _ = b.WriteString(b.formatType(s))
 	_, _ = b.WriteString(") ")
 }
 
