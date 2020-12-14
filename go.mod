@@ -5,7 +5,7 @@ go 1.14
 require (
 	github.com/gavv/httpexpect/v2 v2.1.0
 	github.com/go-dawn/dawn v0.4.3
-	github.com/gofiber/fiber/v2 v2.1.4
+	github.com/gofiber/fiber/v2 v2.2.5
 	github.com/spf13/cobra v1.1.1
 	github.com/stretchr/testify v1.6.1
 	github.com/valyala/bytebufferpool v1.0.0
