@@ -13,5 +13,5 @@ require (
 	github.com/valyala/fastrand v1.0.0
 	golang.org/x/sys v0.0.0-20201214210602-f9fddec55a1e // indirect
 	gorm.io/driver/sqlite v1.1.4
-	gorm.io/gorm v1.20.7
+	gorm.io/gorm v1.20.8
 )
