@@ -94,9 +94,8 @@ func Test_Debug_Buffer_Dump(t *testing.T) {
 		// map
 		{"nil map", nilMap, "map[int]int\n <nil>", false},
 		{"map", map[interface{}]interface{}{
-			1: 1.1,
 			2: [2]int{2, 2},
-		}, "map[interface {}]interface {}\n (len=2) {\n  (int) 1 : (float64) 1.1,\n  (int) 2 : ([2]int) (len=2, cap=2)[2, 2],\n }", false},
+		}, "map[interface {}]interface {}\n (len=1) {\n  (int) 2 : ([2]int) (len=2, cap=2)[2, 2],\n }", false},
 		// pointer
 		{"nil pointer", nilPointer, "**int\n <nil>", false},
 		/* #nosec G103 */
