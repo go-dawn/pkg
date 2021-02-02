@@ -26,11 +26,16 @@ type Expected struct {
 	DataChecker func(data *httpexpect.Value) `json:"-"`
 }
 
-// SetupServer gets fiber.App and httpexpect.Expect instance
-func SetupServer(t *testing.T) (*fiber.App, *httpexpect.Expect) {
-	app := fiber.New(fiber.Config{ErrorHandler: fiberx.ErrHandler})
+// ErrorHandler is Dawn's error handler
+var ErrorHandler = fiberx.ErrHandler
 
-	return app, httpexpect.WithConfig(httpexpect.Config{
+// SetupServer registers routes and gets and httpexpect.Expect instance
+func SetupServer(t *testing.T, registerRoutes func(app *fiber.App)) *httpexpect.Expect {
+	app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler})
+
+	registerRoutes(app)
+
+	return httpexpect.WithConfig(httpexpect.Config{
 		// Pass requests directly to FastHTTPHandler.
 		Client: &http.Client{
 			Transport: httpexpect.NewFastBinder(app.Handler()),

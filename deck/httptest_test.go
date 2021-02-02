@@ -9,10 +9,10 @@ import (
 )
 
 func Test_Httptest_AssertResp(t *testing.T) {
-	app, e := SetupServer(t)
-
-	app.Get("/", func(c *fiber.Ctx) error {
-		return fiberx.Message(c, "test")
+	e := SetupServer(t, func(app *fiber.App) {
+		app.Get("/", func(c *fiber.Ctx) error {
+			return fiberx.Message(c, "test")
+		})
 	})
 
 	resp := e.GET("/").Expect()
@@ -29,8 +29,10 @@ func Test_Httptest_AssertResp(t *testing.T) {
 		Contain: false,
 	}
 
-	app.Get("/data", func(c *fiber.Ctx) error {
-		return fiberx.Data(c, data)
+	e = SetupServer(t, func(app *fiber.App) {
+		app.Get("/data", func(c *fiber.Ctx) error {
+			return fiberx.Data(c, data)
+		})
 	})
 
 	resp2 := e.GET("/data").Expect()

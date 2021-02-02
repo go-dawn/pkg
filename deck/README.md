@@ -248,7 +248,7 @@ func TestRunCobraCmd(t *testing.T) {
 ```
 
 ### httptest
-Use `SetupServer` to get a `*fiber.App` instance as `app` and an `*httptest.Expect` instance as `e`. And then register routes by `app`. Next make request by `e` and finally do assertion with several helper functions. 
+Use `SetupServer` to register fiber routes and get an `*httptest.Expect` instance as `e`. Next make request by `e` and finally do assertion with several helper functions. 
 
 ```go
 import (
@@ -261,10 +261,10 @@ import (
 )
 
 func Test_Fiber_Routes(t *testing.T) {
-	app, e := deck.SetupServer(t)
-
-	app.Get("/", func(c *fiber.Ctx) error {
-		return fiberx.Message(c, "test")
+	e := deck.SetupServer(t, func(app *fiber.App) {
+		app.Get("/", func(c *fiber.Ctx) error {
+			return fiberx.Message(c, "test")
+		})
 	})
 
 	resp := e.GET("/").Expect()
@@ -281,8 +281,10 @@ func Test_Fiber_Routes(t *testing.T) {
 		Contain: false,
 	}
 
-	app.Get("/data", func(c *fiber.Ctx) error {
-		return fiberx.Data(c, data)
+	e = deck.SetupServer(t, func(app *fiber.App) {
+		app.Get("/data", func(c *fiber.Ctx) error {
+			return fiberx.Data(c, data)
+		})
 	})
 
 	resp2 := e.GET("/data").Expect()
