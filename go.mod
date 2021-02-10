@@ -7,7 +7,7 @@ require (
 	github.com/go-dawn/dawn v0.4.3
 	github.com/gofiber/fiber/v2 v2.5.0
 	github.com/klauspost/compress v1.11.7 // indirect
-	github.com/spf13/cobra v1.1.1
+	github.com/spf13/cobra v1.1.2
 	github.com/stretchr/testify v1.7.0
 	github.com/valyala/bytebufferpool v1.0.0
 	github.com/valyala/fasthttp v1.19.0 // indirect
