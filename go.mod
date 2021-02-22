@@ -3,7 +3,7 @@ module github.com/go-dawn/pkg
 go 1.14
 
 require (
-	github.com/gavv/httpexpect/v2 v2.1.0
+	github.com/gavv/httpexpect/v2 v2.2.0
 	github.com/go-dawn/dawn v0.4.3
 	github.com/gofiber/fiber/v2 v2.5.0
 	github.com/klauspost/compress v1.11.7 // indirect
